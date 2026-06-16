@@ -30,13 +30,35 @@ public class LogiRender {
       System.exit(2);
     }
     String in = args[0], out = args[1];
-    double scale = args.length > 2 ? Double.parseDouble(args[2]) : 4.0;
+    double scale = 4.0;
+    if (args.length > 2) {
+      try {
+        scale = Double.parseDouble(args[2]);
+      } catch (NumberFormatException e) {
+        System.err.println("error: scale must be a number, got: " + args[2]);
+        System.exit(2);
+      }
+    }
     int margin = 16;
+
+    File inFile = new File(in);
+    if (!inFile.isFile()) {
+      System.err.println("error: input circuit not found: " + in);
+      System.exit(2);
+    }
 
     AppPreferences.GATE_SHAPE.set(AppPreferences.SHAPE_SHAPED);
 
     Loader loader = new Loader(null);
-    LogisimFile lf = loader.openLogisimFile(new File(in));
+    LogisimFile lf;
+    try {
+      lf = loader.openLogisimFile(inFile);
+    } catch (Exception e) {
+      System.err.println("error: could not open '" + in + "' as a Logisim .circ: "
+          + e.getMessage());
+      System.exit(1);
+      return;
+    }
     Project proj = new Project(lf);
     Circuit circ = lf.getCircuit("main");
     if (circ == null) circ = lf.getCircuits().get(0);

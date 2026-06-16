@@ -156,6 +156,22 @@ render_scene(wiring(), 'wiring_demo', 'build')   # -> build/wiring_demo.pdf
   `s.power_label = "Power box"`.
 - See `examples/breadboard.py`.
 
+## When something fails
+
+Run `python3 -m logikit.doctor` (or `make doctor`) first — it reports which
+capabilities are available (core / PNG / breadboard PDF) and prints how to
+install whatever is missing. The tools also raise actionable errors rather than
+bare tracebacks:
+
+- `render.sh` checks for `java`/`javac` and the Logisim jar and tells you how to
+  get each (`LOGISIM_JAR`, the download link).
+- `render_scene` fails with an install hint if `lualatex` is missing, and a
+  targeted CJK-font hint if compilation dies on a missing font. To avoid the CJK
+  dependency entirely, use `DOC_LATIN` with ASCII `logic_label`/`power_label`:
+  `render_scene(scene, name, doc=DOC_LATIN)`.
+- `check(...)` / `truth_table(...)` raise a clear "generate it first with
+  emit(...)" error if the `.circ`/`.spec` doesn't exist yet.
+
 ## Pitfalls
 
 - **Don't skip the check.** A wrong circuit renders just as cleanly as a right

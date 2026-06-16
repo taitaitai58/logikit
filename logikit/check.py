@@ -112,6 +112,11 @@ def build_nets(wires, ports):
 def check(name, outdir='.'):
     """Check ``name.circ`` against ``name.spec``; print a report, return bool."""
     base = os.path.join(outdir, name)
+    for ext in ('.circ', '.spec'):
+        if not os.path.isfile(base + ext):
+            raise FileNotFoundError(
+                f"{base + ext!r} not found — generate it first, e.g. "
+                f"emit('{name}', builder, {outdir!r}).")
     with open(base + '.circ') as f:
         circ = f.read()
     with open(base + '.spec') as f:

@@ -45,6 +45,10 @@ _KIND = {'NAND Gate': 'NAND', 'AND Gate': 'AND', 'OR Gate': 'OR',
 
 def parse_circ(path):
     """Return ``(wires, comps)`` from a ``.circ`` file path."""
+    if not os.path.isfile(path):
+        raise FileNotFoundError(
+            f"{path!r} not found — generate it first with emit(...) before "
+            f"simulating.")
     with open(path) as f:
         circ = f.read()
     wires = []

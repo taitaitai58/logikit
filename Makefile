@@ -4,13 +4,17 @@
 PY ?= python3
 SCALE ?= 4
 
-.PHONY: examples check sim figures wiring render clean help
+.PHONY: doctor examples check sim figures wiring render clean help
 
 help:
+	@echo "make doctor     check which capabilities are available in this environment"
 	@echo "make examples   generate example .circ + run connectivity check + truth tables"
 	@echo "make figures    render the example schematics to build/*.png (needs LOGISIM_JAR)"
 	@echo "make wiring     build the example breadboard PDF (needs lualatex + CJK font)"
 	@echo "make clean      remove build artifacts"
+
+doctor:
+	$(PY) -m logikit.doctor
 
 examples:
 	$(PY) -m examples.circuits

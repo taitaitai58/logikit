@@ -28,7 +28,10 @@ with a CJK font (the box labels are Japanese by default; override
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
+
+from . import _env
 
 # ----------------------------------------------------------------------
 # geometry (cm, y up)
@@ -298,8 +301,7 @@ class Scene:
 
 
 # Standalone LuaLaTeX document.  Uses luatexja-fontspec with Harano Aji fonts so
-# the Japanese box labels render; for an all-Latin figure (logic_label /
-# power_label set to ASCII) any engine with tikz works, but lualatex is assumed.
+# the Japanese box labels (論理箱 / 電源箱) render.
 DOC = r"""\documentclass[border=5pt]{standalone}
 \usepackage{luatexja-fontspec}
 \setmainjfont{HaranoAjiMincho}
@@ -312,25 +314,60 @@ DOC = r"""\documentclass[border=5pt]{standalone}
 \end{document}
 """
 
+# All-Latin variant: plain tikz, no CJK font required.  Use this together with
+# ASCII labels (scene.logic_label / power_label) when you don't have a CJK font.
+DOC_LATIN = r"""\documentclass[border=5pt]{standalone}
+\usepackage{tikz}
+\begin{document}
+\begin{tikzpicture}[line cap=round, line join=round]
+%s
+\end{tikzpicture}
+\end{document}
+"""
+
+
+def _looks_like_font_error(log):
+    low = log.lower()
+    return (('haranoaji' in low or 'fontspec' in low or 'luaotfload' in low
+             or 'luatexja' in low)
+            and ('not found' in low or 'cannot' in low or 'could not' in low
+                 or 'unable to' in low or 'fatal' in low))
+
 
 def render_scene(scene, name, outdir='build', doc=DOC, keep_aux=False):
     """Lay out ``scene``, compile it with ``lualatex`` and return the PDF path.
 
-    Writes ``outdir/name.tex`` and ``outdir/name.pdf``.  Raises
-    ``RuntimeError`` (with the tail of the LaTeX log) if compilation fails.
+    Writes ``outdir/name.tex`` and ``outdir/name.pdf``.  Raises a
+    ``RuntimeError`` with an actionable message if ``lualatex`` is missing or
+    compilation fails (a missing CJK font gets a targeted hint).
     """
+    if shutil.which('lualatex') is None:
+        raise RuntimeError(
+            "`lualatex` was not found on PATH, so the breadboard PDF cannot be "
+            "built.\n" + _env.hint_lualatex() +
+            "\n(The .circ generation / check / simulation parts need none of this.)")
+
     os.makedirs(outdir, exist_ok=True)
     scene.layout()
     tex = doc % scene.tikz()
     texpath = os.path.join(outdir, name + '.tex')
     with open(texpath, 'w') as f:
         f.write(tex)
-    r = subprocess.run(
-        ['lualatex', '-interaction=nonstopmode', '-halt-on-error', name + '.tex'],
-        cwd=outdir, capture_output=True, text=True)
+    try:
+        r = subprocess.run(
+            ['lualatex', '-interaction=nonstopmode', '-halt-on-error', name + '.tex'],
+            cwd=outdir, capture_output=True, text=True)
+    except OSError as e:                       # e.g. lualatex vanished mid-run
+        raise RuntimeError(f"could not run lualatex: {e}\n" + _env.hint_lualatex())
+
     pdf = os.path.join(outdir, name + '.pdf')
     if r.returncode != 0 or not os.path.exists(pdf):
-        raise RuntimeError(f"lualatex failed for {name}:\n" + r.stdout[-2500:])
+        msg = [f"lualatex failed for {name!r}."]
+        if doc is DOC and _looks_like_font_error(r.stdout):
+            msg.append("\nThis looks like a missing CJK font:\n" + _env.hint_cjk_font())
+        msg.append("\n--- lualatex log (tail) ---\n" + r.stdout[-2500:])
+        raise RuntimeError("\n".join(msg))
+
     if not keep_aux:
         for ext in ('.aux', '.log'):
             p = os.path.join(outdir, name + ext)
