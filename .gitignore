@@ -1,0 +1,26 @@
+# build artifacts (generated .circ / figures / LaTeX intermediates)
+build/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+.venv/
+venv/
+
+# compiled Java
+*.class
+
+# the Logisim jar is large + third-party: provide it via $LOGISIM_JAR
+*.jar
+
+# LaTeX aux (in case anything builds outside build/)
+*.aux
+*.log
+*.fls
+*.fdb_latexmk
+*.synctex.gz
+
+# OS
+.DS_Store

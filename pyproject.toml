@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "logikit"
+version = "0.1.0"
+description = "Generate, render and verify digital-logic figures (Logisim .circ schematics and breadboard/DIP wiring diagrams) from Python."
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [{ name = "Taiga Kato" }]
+keywords = ["logisim", "digital-logic", "schematic", "nand", "breadboard", "figure-generation", "tikz"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Topic :: Scientific/Engineering :: Electronic Design Automation (EDA)",
+    "Topic :: Education",
+]
+dependencies = []  # pure standard library
+
+[project.urls]
+Homepage = "https://github.com/taitaitai58/logikit"
+Repository = "https://github.com/taitaitai58/logikit"
+
+[tool.setuptools]
+packages = ["logikit"]
