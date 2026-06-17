@@ -70,16 +70,31 @@ public class LogiRender {
     Bounds b = circ.getBounds(pg);
     pg.dispose();
 
-    int w = (int) Math.ceil((b.getWidth() + 2 * margin) * scale);
-    int h = (int) Math.ceil((b.getHeight() + 2 * margin) * scale);
+    long w = (long) Math.ceil((b.getWidth() + 2 * margin) * scale);
+    long h = (long) Math.ceil((b.getHeight() + 2 * margin) * scale);
 
-    BufferedImage img = new BufferedImage(w, h, BufferedImage.TYPE_INT_ARGB);
+    // Guard against pathological bounds (a malformed .circ with a component or
+    // wire at an extreme coordinate makes the bounding box explode). Without
+    // this, `new BufferedImage(w, h, …)` tries to allocate a single int[w*h]
+    // array of many gigabytes, overflowing int and/or thrashing the JVM into a
+    // huge real-memory allocation. Fail fast with a diagnosable message instead.
+    long MAX_PIXELS = 200_000_000L; // ~800 MB image; a logic diagram is far smaller
+    if (w <= 0 || h <= 0 || w > 50_000L || h > 50_000L || w * h > MAX_PIXELS) {
+      System.err.println("error: refusing to render an implausibly large image: "
+          + w + "x" + h + " px (circuit bounds " + b.getWidth() + "x" + b.getHeight()
+          + " at scale " + scale + "). The .circ likely has a component or wire at an"
+          + " extreme coordinate; check it for stray geometry, or lower the scale.");
+      System.exit(1);
+      return;
+    }
+
+    BufferedImage img = new BufferedImage((int) w, (int) h, BufferedImage.TYPE_INT_ARGB);
     Graphics2D g = img.createGraphics();
     g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
     g.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
     g.setRenderingHint(RenderingHints.KEY_STROKE_CONTROL, RenderingHints.VALUE_STROKE_PURE);
     g.setColor(Color.WHITE);
-    g.fillRect(0, 0, w, h);
+    g.fillRect(0, 0, (int) w, (int) h);
     g.scale(scale, scale);
     g.translate(margin - b.getX(), margin - b.getY());
 
