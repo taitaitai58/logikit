@@ -57,7 +57,9 @@ PWRH = 2.35                # power-box height
 RPAD = 1.25                # right padding inside logic box for its label
 TRACK = 0.36               # spacing between routing tracks
 SIDE = 0.42                # spacing between side risers
-HUBSTEP = 0.13             # x-offset between cables fanning from one hub (極)
+LAND = 0.17                # max |x-offset| of a fanned cable's landing (< PINR,
+                           # so every cable end lands inside its terminal circle)
+GAP = 0.05                 # innermost landing offset when a hub fans to both sides
 
 
 def pin_col(pin):
@@ -163,17 +165,21 @@ class Scene:
         raise ValueError(term)
 
     def resolve(self, term):
-        """-> dict(x, ya, region); ``ya`` is the wire attach point (circle edge)."""
+        """-> dict(x, cy, ya, region).
+
+        ``cy`` is the terminal-circle centre; cables land THERE (inside the
+        radius) so the pin/electrode circle — drawn last, on top — cleanly caps
+        the wire end.  ``ya`` is the circle edge (kept for reference)."""
         t = term[0]
         if t == 'E':
-            n = term[1]
-            return dict(x=self.elec_x(n), ya=self.elec_y - PINR, region='top')
+            cx, cy = self.elec_x(term[1]), self.elec_y
+            return dict(x=cx, cy=cy, ya=cy - PINR, region='top')
         if t == 'P':
             k, pin = term[1], term[2]
-            x = self.icx[k] + 0.65 + pin_col(pin) * PITCH
+            cx = self.icx[k] + 0.65 + pin_col(pin) * PITCH
             if 1 <= pin <= 7:
-                return dict(x=x, ya=TOPY + PINR, region='top')
-            return dict(x=x, ya=BOTY - PINR, region='bot')
+                return dict(x=cx, cy=TOPY, ya=TOPY + PINR, region='top')
+            return dict(x=cx, cy=BOTY, ya=BOTY - PINR, region='bot')
         raise ValueError(term)
 
     # ---- net registration (routing deferred until layout) ------------
@@ -197,9 +203,11 @@ class Scene:
 
     # ---- routing: one point-to-point cable ---------------------------
     def _cable(self, hub_t, hub, off, tgt_t, tgt, side):
-        """Draw one two-terminal cable from the hub (offset ``off``) to a target."""
-        hx, hy, hr = hub['x'] + off, hub['ya'], hub['region']
-        tx, ty = tgt['x'], tgt['ya']
+        """Draw one two-terminal cable from the hub (landing offset ``off``) to a
+        target.  Both ends land at the terminal-circle centre (``cy``), so the
+        circle drawn on top caps the wire end inside its radius."""
+        hx, hy, hr = hub['x'] + off, hub['cy'], hub['region']
+        tx, ty = tgt['x'], tgt['cy']
         if tgt['region'] == hr:                           # same row -> one track
             yc = self.top_track() if hr == 'top' else self.bot_track()
             pts = [(hx, hy), (hx, yc), (tx, yc), (tx, ty)]
@@ -213,7 +221,13 @@ class Scene:
         self.cables.append({'a': hub_t, 'b': tgt_t, 'segs': self._poly(pts)})
 
     def _route_star(self, terminals, side):
-        """Fan independent cables from the source terminal to every other one."""
+        """Fan independent cables from the source terminal to every other one.
+
+        Cables leave the hub at distinct landing offsets, all within ``LAND`` of
+        the centre so each end stays inside the hub circle.  Within a side the
+        nearest target gets the outermost landing + lowest track (nested, so the
+        same-net cables do not cross); a hub that fans to one side only spreads
+        its cables across the full circle, otherwise each side keeps to its half."""
         hub_t = terminals[0]
         hub = self.resolve(hub_t)
         seen = set()
@@ -233,44 +247,47 @@ class Scene:
             else:
                 go_right, reach = (tr['x'] >= hub['x']), abs(tr['x'] - hub['x'])
             (right if go_right else left).append((reach, tg, tr))
-        # within a side: nearest target -> outermost lead + lowest track,
-        # farthest -> innermost lead + highest track (nested, no self-crossing)
+        both = bool(left) and bool(right)
         for grp, sgn in ((right, +1.0), (left, -1.0)):
+            if not grp:
+                continue
             grp.sort(key=lambda e: e[0])                  # nearest first
             k = len(grp)
+            # nearest -> outermost landing (toward this side); farthest -> inner.
+            # one-sided hub uses the whole circle [-LAND, +LAND]; two-sided keeps
+            # to its half [GAP, LAND].
+            outer, inner = sgn * LAND, (sgn * GAP if both else -sgn * LAND)
             for idx, (reach, tg, tr) in enumerate(grp):
-                off = sgn * HUBSTEP * (k - idx)
+                off = outer if k == 1 else outer + (inner - outer) * idx / (k - 1)
                 self._cable(hub_t, hub, off, tg, tr, side)
 
     # ---- power nets (Vcc / GND): a star from the power terminal -------
     def _route_gnd(self):
-        gx, gy = self.gnd_xy()
-        hub_y = gy + PINR
+        gx, gy = self.gnd_xy()                            # gy = GND-circle centre
         m = self.n_ic
+        step = min(LAND / max(m, 1), 0.10)                # keep landings inside the circle
         for k in range(m):
             p7 = self.resolve(('P', k, 7))
             yt = self.top_track()
             lx = self.side_left()
             wy = self.pwr_b + PWRH + 0.5 + k * 0.30
-            off = (k - (m - 1) / 2) * HUBSTEP if m > 1 else 0.0
-            gxx = gx + off
-            pts = [(gxx, hub_y), (gxx, wy), (lx, wy), (lx, yt),
-                   (p7['x'], yt), (p7['x'], p7['ya'])]
+            gxx = gx + (k - (m - 1) / 2) * step
+            pts = [(gxx, gy), (gxx, wy), (lx, wy), (lx, yt),
+                   (p7['x'], yt), (p7['x'], p7['cy'])]
             self.cables.append({'a': ('GND',), 'b': ('P', k, 7), 'segs': self._poly(pts)})
 
     def _route_vcc(self):
-        vx, vy = self.vcc_xy()
-        hub_y = vy + PINR
+        vx, vy = self.vcc_xy()                            # vy = Vcc-circle centre
         m = self.n_ic
+        step = min(LAND / max(m, 1), 0.10)
         for k in range(m):
             p14 = self.resolve(('P', k, 14))
             yb = self.bot_track()
             lx = self.side_left()
             wy = self.pwr_b + PWRH + 0.85 + k * 0.30
-            off = (k - (m - 1) / 2) * HUBSTEP if m > 1 else 0.0
-            vxx = vx + off
-            pts = [(vxx, hub_y), (vxx, wy), (lx, wy), (lx, yb),
-                   (p14['x'], yb), (p14['x'], p14['ya'])]
+            vxx = vx + (k - (m - 1) / 2) * step
+            pts = [(vxx, vy), (vxx, wy), (lx, wy), (lx, yb),
+                   (p14['x'], yb), (p14['x'], p14['cy'])]
             self.cables.append({'a': ('VCC',), 'b': ('P', k, 14), 'segs': self._poly(pts)})
 
     def layout(self):
