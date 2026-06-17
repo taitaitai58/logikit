@@ -83,7 +83,11 @@ Build a `Circ` via the `fn(c)` builder. Methods:
 Gates face **East**, `size=50`, grid 10:
 
 - gate output port: `(x, y)`
-- 2 inputs: `(x-50, y-20)` and `(x-50, y+20)`; a 3rd input adds `(x-50, y)`
+- 2 inputs: `(x-DX, y-20)` and `(x-DX, y+20)`; a 3rd input adds `(x-DX, y)`.
+  `DX` = body (50) + edge decorations, so it depends on the gate kind (verified
+  against Logisim's real ports): `AND`/`OR` → 50; `NAND`/`NOR` (+output bubble) →
+  60; `XOR` (+input arc) → 60; `XNOR` (both) → 70. `c.gate(...)` returns the
+  right input coords, so normally just use `g['in'][i]` and don't hand-compute.
 - `NOT` is width 30: input at `(x-30, y)`
 - a `Pin`'s port is at its `(x, y)`
 

@@ -6,11 +6,16 @@ result simulates but looks nothing like a hand-drawn schematic.  ``logikit``
 instead lays out real orthogonal wires, so the rendered figure is a genuine
 gate-and-wire diagram — junction dots, crossings and all.
 
-Verified geometry (Logisim gate ``size=50``, grid 10, every gate faces East)::
+Verified geometry (Logisim gate ``size=50``, grid 10, every gate faces East;
+checked by loading the ``.circ`` and reading each component's real ports)::
 
-    NAND/AND/OR/NOR  output port at (x, y)
-                     2 inputs at (x-50, y-20) and (x-50, y+20)
-                     3 inputs add a centre input at (x-50, y)
+    output port at (x, y); 2 inputs at (x-DX, y-20)/(x-DX, y+20);
+    a 3-input gate adds a centre input at (x-DX, y).  DX is the body width (50)
+    plus whatever is drawn on the in/out edges:
+        AND, OR        DX = 50   (plain body)
+        NAND, NOR      DX = 60   (+10 output bubble)
+        XOR            DX = 60   (+10 input arc)
+        XNOR           DX = 70   (+10 input arc +10 output bubble)
     NOT (width 30)   output (x, y), input (x-30, y)
     Pin (in or out)  port at (x, y)
 
@@ -51,6 +56,11 @@ FOOTER = '''  </circuit>
 # Logisim component names for the gates in the #Gates library.
 GATE = {'NAND': 'NAND Gate', 'AND': 'AND Gate', 'OR': 'OR Gate',
         'NOR': 'NOR Gate', 'XOR': 'XOR Gate', 'XNOR': 'XNOR Gate'}
+
+# Input-side X offset of a size-50 gate = body (50) + edge decorations: a 10 px
+# output bubble on NAND/NOR/XNOR, a 10 px input arc on XOR/XNOR.  (Verified
+# against Logisim-evolution by reading each component's real ports.)
+GATE_IN_DX = {'AND': 50, 'OR': 50, 'NAND': 60, 'NOR': 60, 'XOR': 60, 'XNOR': 70}
 
 
 class Circ:
@@ -104,9 +114,9 @@ class Circ:
         """A 2- or 3-input logic gate facing East.
 
         ``kind`` is one of :data:`GATE` (NAND/AND/OR/NOR/XOR/XNOR).  Returns
-        ``{'out': (x, y), 'in': [(..), (..)]}``.  Port geometry is verified for
-        NAND/AND/OR/NOR; XOR/XNOR share the same port grid in Logisim but their
-        left edge is drawn slightly differently.
+        ``{'out': (x, y), 'in': [(..), (..)]}``.  The input X offset depends on
+        the gate's edge decorations (see :data:`GATE_IN_DX`): AND/OR are at
+        x-50, NAND/NOR/XOR at x-60, XNOR at x-70.
 
         For XOR/XNOR, ``xor`` picks the multi-input behaviour (it is irrelevant
         for 2 inputs): ``'one'`` is Logisim's default ("exactly one input high")
@@ -122,10 +132,11 @@ class Circ:
         self.parts.append(
             f'    <comp lib="1" loc="({x},{y})" name="{GATE[kind]}">'
             f'<a name="size" val="50"/><a name="inputs" val="{n}"/>{xa}{lab}</comp>')
+        dx = GATE_IN_DX[kind]
         if n == 2:
-            ins = [(x - 50, y - 20), (x - 50, y + 20)]
+            ins = [(x - dx, y - 20), (x - dx, y + 20)]
         elif n == 3:
-            ins = [(x - 50, y - 20), (x - 50, y), (x - 50, y + 20)]
+            ins = [(x - dx, y - 20), (x - dx, y), (x - dx, y + 20)]
         else:
             raise ValueError(f"unsupported input count {n}")
         return {'out': (x, y), 'in': ins}
@@ -152,8 +163,8 @@ class Circ:
         connectivity check sees the real component ports.
         """
         g = self.nand(x, y, 2)
-        p1, p2 = g['in']                  # (x-50, y-20), (x-50, y+20)
-        bx = x - 70                       # left bracket column
+        p1, p2 = g['in']                  # (x-60, y-20), (x-60, y+20)
+        bx = x - 70                       # left bracket column (left of the inputs)
         self.w((bx, p1[1]), p1)           # bracket -> in1
         self.w((bx, p2[1]), p2)           # bracket -> in2
         self.w((bx, p1[1]), (bx, p2[1]))  # vertical tie

@@ -18,7 +18,7 @@ import os
 import re
 import sys
 
-from .check import UF, on_seg
+from .check import UF, on_seg, _GRID_GATE_DX
 
 # Boolean function of each gate kind, given the list of input values (0/1).
 # Logisim-evolution's *default* XOR/XNOR is "exactly one input high"
@@ -110,8 +110,9 @@ def netlist_from_circ(name, outdir='.'):
             if mm:
                 n = int(mm.group(1))
             o = (x, y)
-            ins = ([(x - 50, y - 20), (x - 50, y + 20)] if n == 2 else
-                   [(x - 50, y - 20), (x - 50, y), (x - 50, y + 20)])
+            dx = _GRID_GATE_DX[nm]
+            ins = ([(x - dx, y - 20), (x - dx, y + 20)] if n == 2 else
+                   [(x - dx, y - 20), (x - dx, y), (x - dx, y + 20)])
             ports += [o] + ins
             kind = _KIND[nm]
             if kind in ('XOR', 'XNOR') and re.search(r'name="xor" val="odd"', body):
