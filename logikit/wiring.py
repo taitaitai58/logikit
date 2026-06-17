@@ -14,12 +14,21 @@ Pin layout (matches a standard 14-pin DIP / the lab guide)::
     bottom   (left -> right): 14 13 12 11 10 9 8
     Vcc = pin 14,  GND = pin 7
 
-Routing model: each net is a tree of orthogonal segments.  Signal nets get a
-horizontal trunk on a dedicated track in the channel above the boxes (for
-top-row pins / electrodes) and/or a track below (bottom-row pins), joined by a
-side riser when a net spans both.  T-junctions get a solder dot; plain
-crossings do not — standard schematic convention.  Power nets wrap over the
-top-left corner.
+Routing model — **point-to-point only, no branched cables**.  Real jumper
+wires have exactly two ends, so a reproducible wiring diagram must use only
+two-terminal cables: a single cable may never branch (no T-junction / solder
+dot mid-wire).  A net that joins *k* terminals is therefore wired as a **star**
+fanning out from its *source* terminal (the 極 — the first terminal passed to
+:meth:`net`; for an input net that is the electrode key, for an internal net
+the driving gate-output pin).  One independent orthogonal cable runs from that
+hub to each of the other terminals.  The hub (an electrode key or a DIP pin /
+breadboard column) physically takes several wire-ends, so the cables fan out
+from it at small offsets; every other terminal receives exactly one cable.
+Each cable runs on its own track in the channel above the boxes (top-row pins /
+electrodes) and/or below (bottom-row pins), joined by a side riser when it
+spans both rows.  Power nets fan the same way from the GND / Vcc terminal.
+There are **no solder dots**: every junction sits on a terminal, never on a
+free cable.
 
 Output: a standalone, auto-cropped PDF per scene.  Rendering needs ``lualatex``
 with a CJK font (the box labels are Japanese by default; override
@@ -48,6 +57,7 @@ PWRH = 2.35                # power-box height
 RPAD = 1.25                # right padding inside logic box for its label
 TRACK = 0.36               # spacing between routing tracks
 SIDE = 0.42                # spacing between side risers
+HUBSTEP = 0.13             # x-offset between cables fanning from one hub (極)
 
 
 def pin_col(pin):
@@ -64,12 +74,15 @@ class Scene:
 
     * ``('E', n)``      — electrode key ``n`` (1..7) on the power box, or
     * ``('P', k, pin)`` — pin ``pin`` (1..14) of logic box ``k`` (0-based).
+
+    The **first** terminal of a :meth:`net` is its source (極 / hub): every
+    other terminal is wired to it by an independent point-to-point cable.
     """
 
     def __init__(self, n_ic):
         self.n_ic = n_ic
-        self.lines = []            # (x1, y1, x2, y2)
-        self.dots = []             # (x, y)
+        self.lines = []            # (x1, y1, x2, y2) — flattened, for TikZ
+        self.cables = []           # {a, b, segs} per point-to-point cable
         self.icx = [k * (ICW + ICGAP) for k in range(n_ic)]
         self.total_w = n_ic * ICW + (n_ic - 1) * ICGAP
         # power box, centred over the ICs, shifted +0.5 pitch (avoid pin alignment)
@@ -113,8 +126,15 @@ class Scene:
     def seg(self, x1, y1, x2, y2):
         self.lines.append((round(x1, 3), round(y1, 3), round(x2, 3), round(y2, 3)))
 
-    def dot(self, x, y):
-        self.dots.append((round(x, 3), round(y, 3)))
+    def _poly(self, pts):
+        """Emit an orthogonal polyline (one cable); return its rounded segments."""
+        segs = []
+        for (x1, y1), (x2, y2) in zip(pts, pts[1:]):
+            if (round(x1, 3), round(y1, 3)) == (round(x2, 3), round(y2, 3)):
+                continue                                  # skip zero-length
+            self.seg(x1, y1, x2, y2)
+            segs.append((round(x1, 3), round(y1, 3), round(x2, 3), round(y2, 3)))
+        return segs
 
     # ---- coordinate resolution ---------------------------------------
     def elec_x(self, n):
@@ -134,6 +154,14 @@ class Scene:
     def vcc_xy(self):
         return (self.pwr_x0 + 1.95, self.gv_y)
 
+    def _region(self, term):
+        """'top' (electrodes + pins 1-7) or 'bot' (pins 8-14) — no pwr_b needed."""
+        if term[0] == 'E':
+            return 'top'
+        if term[0] == 'P':
+            return 'top' if 1 <= term[2] <= 7 else 'bot'
+        raise ValueError(term)
+
     def resolve(self, term):
         """-> dict(x, ya, region); ``ya`` is the wire attach point (circle edge)."""
         t = term[0]
@@ -148,25 +176,13 @@ class Scene:
             return dict(x=x, ya=BOTY - PINR, region='bot')
         raise ValueError(term)
 
-    # ---- one horizontal trunk with vertical drops --------------------
-    def trunk(self, yt, terms, extra_x=None):
-        xs = [t['x'] for t in terms]
-        allx = xs + ([extra_x] if extra_x is not None else [])
-        x0, x1 = min(allx), max(allx)
-        self.seg(x0, yt, x1, yt)
-        for t in terms:
-            self.seg(t['x'], t['ya'], t['x'], yt)
-            if x0 < t['x'] < x1:
-                self.dot(t['x'], yt)
-        if extra_x is not None and x0 < extra_x < x1:
-            self.dot(extra_x, yt)
-        return x0, x1
-
     # ---- net registration (routing deferred until layout) ------------
     def net(self, terminals, side='R'):
         """Register a signal net joining ``terminals`` (a list of E/P tuples).
 
-        ``side`` ('R' or 'L') chooses which side risers run on when the net
+        ``terminals[0]`` is the source (極 / hub): the net is wired as a star
+        of point-to-point cables, one from the hub to each other terminal.
+        ``side`` ('R' or 'L') chooses which side risers a cable uses when it
         spans both the top and bottom pin rows.
         """
         self.pending.append(('sig', terminals, side))
@@ -179,47 +195,86 @@ class Scene:
         """Wire pin 14 (Vcc) of every logic box to the power box's Vcc."""
         self.pending.append(('vcc',))
 
-    # ---- routing ------------------------------------------------------
-    def _route_sig(self, terminals, side):
-        terms = [self.resolve(t) for t in terminals]
-        top = [t for t in terms if t['region'] == 'top']
-        bot = [t for t in terms if t['region'] == 'bot']
-        if top and bot:
+    # ---- routing: one point-to-point cable ---------------------------
+    def _cable(self, hub_t, hub, off, tgt_t, tgt, side):
+        """Draw one two-terminal cable from the hub (offset ``off``) to a target."""
+        hx, hy, hr = hub['x'] + off, hub['ya'], hub['region']
+        tx, ty = tgt['x'], tgt['ya']
+        if tgt['region'] == hr:                           # same row -> one track
+            yc = self.top_track() if hr == 'top' else self.bot_track()
+            pts = [(hx, hy), (hx, yc), (tx, yc), (tx, ty)]
+        else:                                             # spans rows -> side riser
             sx = self.side_right() if side == 'R' else self.side_left()
-            yt = self.top_track()
-            yb = self.bot_track()
-            self.trunk(yt, top, extra_x=sx)
-            self.trunk(yb, bot, extra_x=sx)
-            self.seg(sx, yt, sx, yb)
-        elif top:
-            self.trunk(self.top_track(), top)
-        else:
-            self.trunk(self.bot_track(), bot)
+            if hr == 'top':
+                yh, yo = self.top_track(), self.bot_track()
+            else:
+                yh, yo = self.bot_track(), self.top_track()
+            pts = [(hx, hy), (hx, yh), (sx, yh), (sx, yo), (tx, yo), (tx, ty)]
+        self.cables.append({'a': hub_t, 'b': tgt_t, 'segs': self._poly(pts)})
 
+    def _route_star(self, terminals, side):
+        """Fan independent cables from the source terminal to every other one."""
+        hub_t = terminals[0]
+        hub = self.resolve(hub_t)
+        seen = set()
+        tgts = [t for t in terminals[1:]                  # drop the hub + duplicates
+                if t != hub_t and not (t in seen or seen.add(t))]
+        if not tgts:
+            return
+        if len(tgts) == 1:                                # clean centred cable
+            self._cable(hub_t, hub, 0.0, tgts[0], self.resolve(tgts[0]), side)
+            return
+        # split targets left/right of the hub; spans go to the chosen side
+        left, right = [], []
+        for tg in tgts:
+            tr = self.resolve(tg)
+            if tr['region'] != hub['region']:             # spanning cable
+                go_right, reach = (side == 'R'), float('inf')
+            else:
+                go_right, reach = (tr['x'] >= hub['x']), abs(tr['x'] - hub['x'])
+            (right if go_right else left).append((reach, tg, tr))
+        # within a side: nearest target -> outermost lead + lowest track,
+        # farthest -> innermost lead + highest track (nested, no self-crossing)
+        for grp, sgn in ((right, +1.0), (left, -1.0)):
+            grp.sort(key=lambda e: e[0])                  # nearest first
+            k = len(grp)
+            for idx, (reach, tg, tr) in enumerate(grp):
+                off = sgn * HUBSTEP * (k - idx)
+                self._cable(hub_t, hub, off, tg, tr, side)
+
+    # ---- power nets (Vcc / GND): a star from the power terminal -------
     def _route_gnd(self):
         gx, gy = self.gnd_xy()
-        p7 = [self.resolve(('P', k, 7)) for k in range(self.n_ic)]
-        yt = self.top_track()
-        lx = self.side_left()
-        wy = self.pwr_b + PWRH + 0.5
-        self.seg(gx, gy + PINR, gx, wy)
-        self.seg(gx, wy, lx, wy)
-        self.seg(lx, wy, lx, yt)
-        self.trunk(yt, p7, extra_x=lx)
+        hub_y = gy + PINR
+        m = self.n_ic
+        for k in range(m):
+            p7 = self.resolve(('P', k, 7))
+            yt = self.top_track()
+            lx = self.side_left()
+            wy = self.pwr_b + PWRH + 0.5 + k * 0.30
+            off = (k - (m - 1) / 2) * HUBSTEP if m > 1 else 0.0
+            gxx = gx + off
+            pts = [(gxx, hub_y), (gxx, wy), (lx, wy), (lx, yt),
+                   (p7['x'], yt), (p7['x'], p7['ya'])]
+            self.cables.append({'a': ('GND',), 'b': ('P', k, 7), 'segs': self._poly(pts)})
 
     def _route_vcc(self):
         vx, vy = self.vcc_xy()
-        p14 = [self.resolve(('P', k, 14)) for k in range(self.n_ic)]
-        yb = self.bot_track()
-        lx = self.side_left()
-        wy = self.pwr_b + PWRH + 0.85
-        self.seg(vx, vy + PINR, vx, wy)
-        self.seg(vx, wy, lx, wy)
-        self.seg(lx, wy, lx, yb)
-        self.trunk(yb, p14, extra_x=lx)
+        hub_y = vy + PINR
+        m = self.n_ic
+        for k in range(m):
+            p14 = self.resolve(('P', k, 14))
+            yb = self.bot_track()
+            lx = self.side_left()
+            wy = self.pwr_b + PWRH + 0.85 + k * 0.30
+            off = (k - (m - 1) / 2) * HUBSTEP if m > 1 else 0.0
+            vxx = vx + off
+            pts = [(vxx, hub_y), (vxx, wy), (lx, wy), (lx, yb),
+                   (p14['x'], yb), (p14['x'], p14['ya'])]
+            self.cables.append({'a': ('VCC',), 'b': ('P', k, 14), 'segs': self._poly(pts)})
 
     def layout(self):
-        """Finalise geometry, then route every registered net.
+        """Finalise geometry, then route every registered net as point-to-point cables.
 
         The power box must sit above the highest top track, but the number of
         top tracks is only known after the nets are examined.  Region
@@ -228,16 +283,22 @@ class Scene:
         n_top = 0
         for item in self.pending:
             if item[0] == 'sig':
-                terms = [self.resolve(t) for t in item[1]]
-                if any(t['region'] == 'top' for t in terms):
-                    n_top += 1
+                hr = self._region(item[1][0])
+                for tg in item[1][1:]:
+                    tr = self._region(tg)
+                    if hr == 'top' and tr == 'top':
+                        n_top += 1
+                    elif hr == 'bot' and tr == 'bot':
+                        pass
+                    else:                                 # spanning cable -> a top track
+                        n_top += 1
             elif item[0] == 'gnd':
-                n_top += 1
+                n_top += self.n_ic                        # one top cable per IC
         self.pwr_b = ICH + 0.55 + max(n_top, 1) * TRACK + 1.0
         self._top_i = self._bot_j = self._sideR = self._sideL = 0
         for item in self.pending:
             if item[0] == 'sig':
-                self._route_sig(item[1], item[2])
+                self._route_star(item[1], item[2])
             elif item[0] == 'gnd':
                 self._route_gnd()
             elif item[0] == 'vcc':
@@ -254,11 +315,9 @@ class Scene:
             A(rf"\fill[white] ({x0:.3f},0) rectangle ({x0+ICW+RPAD:.3f},{ICH:.3f});")
         A(rf"\fill[white] ({self.pwr_x0:.3f},{self.pwr_b:.3f}) "
           rf"rectangle ({self.pwr_x0+self.pwr_w:.3f},{self.pwr_b+PWRH:.3f});")
-        # wires
+        # wires (point-to-point cables; no solder dots — nothing branches)
         for (x1, y1, x2, y2) in self.lines:
             A(rf"\draw[black,line width=0.5pt] ({x1},{y1})--({x2},{y2});")
-        for (x, y) in self.dots:
-            A(rf"\fill[black] ({x},{y}) circle (1.7pt);")
         # logic boxes
         for k in range(self.n_ic):
             x0 = self.icx[k]
