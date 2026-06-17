@@ -148,6 +148,15 @@ render_scene(wiring(), 'wiring_demo', 'build')   # -> build/wiring_demo.pdf
 - Terminals: `('E', n)` = electrode key `n` (1..7); `('P', k, pin)` = pin
   `1..14` of logic box `k`. 74LS00 gate map: output pin `3←(1,2)`, `6←(4,5)`,
   `8←(9,10)`, `11←(12,13)`; `Vcc=14`, `GND=7`.
+- **Point-to-point only — no branched cables.** Real jumper wires have two ends,
+  so every drawn cable joins exactly two terminals; nothing branches (no
+  T-junction / solder dot mid-wire). A net of k terminals is wired as a STAR
+  fanning from its source terminal (the 極): `terminals[0]` of each `net([...])`
+  is that source — an electrode key for an input, the driving gate-output pin
+  for an internal signal. One independent cable runs from it to each other
+  terminal; `gnd_net()`/`vcc_net()` fan the same way from the GND/Vcc terminal.
+  (This is the **wiring diagram** rule; the Logisim `.circ` schematic side
+  still uses `c.fan(...)` trunks/T-junctions, which is how Logisim nets join.)
 - Convention used here: **outputs are read on the logic box's built-in pin LED,
   so they are NOT wired back to the power box** — only inputs come from
   electrode keys.

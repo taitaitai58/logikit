@@ -1,5 +1,6 @@
 # build artifacts (generated .circ / figures / LaTeX intermediates)
 build/
+tmp/
 
 # Python
 __pycache__/
