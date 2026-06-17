@@ -21,10 +21,12 @@ import os
 import re
 import sys
 
-# Gates whose ports follow the standard size-50 grid (out at (x,y); inputs at
-# (x-50, y +/- 20), plus a centre input for the 3-input case).
-_GRID_GATES = {'NAND Gate', 'AND Gate', 'OR Gate', 'NOR Gate',
-               'XOR Gate', 'XNOR Gate'}
+# size-50 gates: output at (x,y); inputs at (x-DX, y +/- 20), plus a centre
+# input for the 3-input case.  DX = body (50) + edge decorations (a 10px output
+# bubble on NAND/NOR/XNOR, a 10px input arc on XOR/XNOR) -- verified against
+# Logisim-evolution by reading each component's real ports.
+_GRID_GATE_DX = {'AND Gate': 50, 'OR Gate': 50, 'NAND Gate': 60,
+                 'NOR Gate': 60, 'XOR Gate': 60, 'XNOR Gate': 70}
 
 
 def parse(circ: str):
@@ -53,13 +55,14 @@ def ports_of(lib, x, y, name, body):
         return [(x, y)]
     if name == 'NOT Gate':
         return [(x, y), (x - 30, y)]            # out, in
-    if name in _GRID_GATES:
+    if name in _GRID_GATE_DX:
         n = 2
         mm = re.search(r'name="inputs" val="(\d+)"', body)
         if mm:
             n = int(mm.group(1))
-        ins = ([(x - 50, y - 20), (x - 50, y + 20)] if n == 2 else
-               [(x - 50, y - 20), (x - 50, y), (x - 50, y + 20)])
+        dx = _GRID_GATE_DX[name]
+        ins = ([(x - dx, y - 20), (x - dx, y + 20)] if n == 2 else
+               [(x - dx, y - 20), (x - dx, y), (x - dx, y + 20)])
         return [(x, y)] + ins
     return []   # Text, etc.: no electrical ports
 
