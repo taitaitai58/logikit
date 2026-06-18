@@ -159,6 +159,20 @@ check('half_nand', 'build')            # 接続の静的チェック
 truth_table('half_nand', 'build')      # 2×2 の真理値表
 ```
 
+真理値表は**レポートに貼れる形式**でも出せます。`truth_table_str(name, dir, fmt)`
+（`fmt='md'` / `'latex'`）が表を文字列で返すほか、CLI からも:
+
+```bash
+python3 -m logikit.sim --dir=build --format=md    half_nand   # Markdown 表
+python3 -m logikit.sim --dir=build --format=latex half_nand   # LaTeX tabular
+```
+
+発振して安定しない行（リング発振器など）は出力欄が `—`（LaTeX は `\textemdash`）に
+なり、表の下に注記が付きます。同一ネットを複数のゲート出力が駆動している（バス衝突）と
+シミュレーション結果がゲートの並び順に依存してしまうため、`truth_table` は該当時に
+`[CONFLICT]` を警告し、`simulate(..., strict=True)` は例外を送出します
+（`find_conflicts(gates, inputs)` で一覧取得も可能）。
+
 ### DSL
 
 `Circ`（`logikit/circ.py`）の主なメソッド:
@@ -182,6 +196,22 @@ truth_table('half_nand', 'build')      # 2×2 の真理値表
 T 字で接する配線は同一 net、ただの交差は**非接続**。したがって、各 net は連結した直交線分の木に
 保ち、ある net の**端点**を別の net の配線上に乗せない（乗せるとショート）こと。交差自体は
 問題ありません（ドットなし・非接続）。
+
+## CLI
+
+ディスク上の `.circ`/`.spec` に対する操作は `logikit` コマンド（または `python3 -m logikit`）に
+まとまっています:
+
+```bash
+logikit check  --dir=build mux2_nand            # 接続の静的チェック
+logikit sim    --dir=build --format=md mux2_nand # 真理値表（md / latex / 既定はテキスト）
+logikit examples --no-check                      # 同梱の例回路を再生成
+logikit doctor                                   # 環境診断
+```
+
+任意の回路の**生成**は「ゲートを置いて配線する関数 `fn(c)`」というコード自体なので、
+フラグでは表現できません。`logikit.circ.emit` を使う Python API のままです（上記
+「自分の回路を書く」参照）。`logikit examples` はその CLI ショートカットに相当します。
 
 ## AI から使う
 
