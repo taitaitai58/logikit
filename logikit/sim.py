@@ -162,43 +162,119 @@ def simulate(gates, in_vals, seed=None, max_pass=2000):
     return False, val
 
 
-def truth_table(name, outdir='.', inputs_order=None, outputs_order=None):
-    """Enumerate every input combination of ``name.circ`` and print the
-    settled outputs (with an unstable marker for non-converging rows).
+def _tabulate(name, outdir='.', inputs_order=None, outputs_order=None):
+    """Enumerate every input combination and settle each one.
 
-    Returns the list of rows as ``(in_dict, out_dict, stable)``.
+    Returns ``(in_names, out_names, rows)`` where ``rows`` is a list of
+    ``(in_dict, out_dict, stable)`` triples.  Shared by :func:`truth_table` (text
+    output) and :func:`format_table` / :func:`truth_table_str` (Markdown/LaTeX).
     """
     gates, inputs, outputs = netlist_from_circ(name, outdir)
     in_names = inputs_order or sorted(inputs)
     out_names = outputs_order or sorted(outputs)
-    print(f"  {name}:  inputs {in_names}  ->  outputs {out_names}")
-    print("  " + " ".join(in_names) + "  |  " + " ".join(out_names))
     rows = []
     for combo in itertools.product((0, 1), repeat=len(in_names)):
         forced = {inputs[n]: v for n, v in zip(in_names, combo)}
         stable, val = simulate(gates, forced)
         outs = {n: val[outputs[n]] for n in out_names}
+        rows.append((dict(zip(in_names, combo)), outs, stable))
+    return in_names, out_names, rows
+
+
+def truth_table(name, outdir='.', inputs_order=None, outputs_order=None):
+    """Enumerate every input combination of ``name.circ`` and print the
+    settled outputs (with an unstable marker for non-converging rows).
+
+    Returns the list of rows as ``(in_dict, out_dict, stable)``.  For a table you
+    can paste straight into a report, see :func:`truth_table_str`.
+    """
+    in_names, out_names, rows = _tabulate(name, outdir, inputs_order, outputs_order)
+    print(f"  {name}:  inputs {in_names}  ->  outputs {out_names}")
+    print("  " + " ".join(in_names) + "  |  " + " ".join(out_names))
+    for in_d, outs, stable in rows:
+        combo = [in_d[n] for n in in_names]
         flag = "" if stable else "  (UNSTABLE/oscillates)"
         print("  " + " ".join(str(v) for v in combo) + "  |  "
               + " ".join(str(outs[n]) for n in out_names) + flag)
-        rows.append((dict(zip(in_names, combo)), outs, stable))
     return rows
+
+
+# A row that never settles (an oscillator) has no single stable output value.
+_UNSTABLE_CELL = "—"          # em dash
+
+
+def format_table(in_names, out_names, rows, fmt='md'):
+    """Render an enumerated truth table as a Markdown or LaTeX string.
+
+    ``rows`` is exactly what :func:`truth_table` / :func:`_tabulate` produce —
+    ``(in_dict, out_dict, stable)`` triples.  A non-converging (oscillating) row
+    shows ``—`` in its output cells, and a note is appended if any such row
+    exists.  ``fmt`` is ``'md'`` (GitHub-flavoured Markdown) or ``'latex'`` (a
+    plain ``tabular``, input columns separated from output columns by a rule).
+    """
+    cols = list(in_names) + list(out_names)
+    unstable = any(not stable for _, _, stable in rows)
+
+    if fmt == 'md':
+        out = ["| " + " | ".join(cols) + " |",
+               "|" + "|".join(" --- " for _ in cols) + "|"]
+        for in_d, outs, stable in rows:
+            cells = [str(in_d[n]) for n in in_names] + \
+                    [(str(outs[n]) if stable else _UNSTABLE_CELL) for n in out_names]
+            out.append("| " + " | ".join(cells) + " |")
+        if unstable:
+            out += ["", f"*{_UNSTABLE_CELL} = oscillates (no stable output).*"]
+        return "\n".join(out)
+
+    if fmt == 'latex':
+        rule = "|" if in_names and out_names else ""    # rule between in/out cols
+        colspec = "c" * len(in_names) + rule + "c" * len(out_names)
+        out = [r"\begin{tabular}{" + colspec + "}",
+               " & ".join(cols) + r" \\",
+               r"\hline"]
+        for in_d, outs, stable in rows:
+            cells = [str(in_d[n]) for n in in_names] + \
+                    [(str(outs[n]) if stable else r"\textemdash{}") for n in out_names]
+            out.append(" & ".join(cells) + r" \\")
+        out.append(r"\end{tabular}")
+        if unstable:
+            out.append(r"% \textemdash{} = oscillates (no stable output)")
+        return "\n".join(out)
+
+    raise ValueError(f"unknown format {fmt!r} (use 'md' or 'latex')")
+
+
+def truth_table_str(name, outdir='.', fmt='md', inputs_order=None, outputs_order=None):
+    """Return ``name``'s truth table as a Markdown or LaTeX string — convenient
+    for pasting into a lab report.  See :func:`format_table` for the formats."""
+    in_names, out_names, rows = _tabulate(name, outdir, inputs_order, outputs_order)
+    return format_table(in_names, out_names, rows, fmt)
 
 
 def main(argv=None):
     argv = argv if argv is not None else sys.argv[1:]
     outdir = '.'
+    fmt = None
     names = []
     for a in argv:
         if a.startswith('--dir='):
             outdir = a.split('=', 1)[1]
+        elif a.startswith('--format='):
+            fmt = a.split('=', 1)[1]
+        elif a in ('--md', '--latex'):
+            fmt = a[2:]
         else:
             names.append(a)
     if not names:
-        print("usage: python -m logikit.sim [--dir=DIR] NAME [NAME ...]")
+        print("usage: python -m logikit.sim [--dir=DIR] [--format=md|latex] "
+              "NAME [NAME ...]")
         return 2
     for n in names:
-        truth_table(n, outdir)
+        if fmt:
+            print(truth_table_str(n, outdir, fmt))
+            print()
+        else:
+            truth_table(n, outdir)
     return 0
 
 

@@ -159,6 +159,17 @@ check('half_nand', 'build')            # 接続の静的チェック
 truth_table('half_nand', 'build')      # 2×2 の真理値表
 ```
 
+真理値表は**レポートに貼れる形式**でも出せます。`truth_table_str(name, dir, fmt)`
+（`fmt='md'` / `'latex'`）が表を文字列で返すほか、CLI からも:
+
+```bash
+python3 -m logikit.sim --dir=build --format=md    half_nand   # Markdown 表
+python3 -m logikit.sim --dir=build --format=latex half_nand   # LaTeX tabular
+```
+
+発振して安定しない行（リング発振器など）は出力欄が `—`（LaTeX は `\textemdash`）に
+なり、表の下に注記が付きます。
+
 ### DSL
 
 `Circ`（`logikit/circ.py`）の主なメソッド:
