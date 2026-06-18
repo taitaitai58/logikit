@@ -168,7 +168,10 @@ python3 -m logikit.sim --dir=build --format=latex half_nand   # LaTeX tabular
 ```
 
 発振して安定しない行（リング発振器など）は出力欄が `—`（LaTeX は `\textemdash`）に
-なり、表の下に注記が付きます。
+なり、表の下に注記が付きます。同一ネットを複数のゲート出力が駆動している（バス衝突）と
+シミュレーション結果がゲートの並び順に依存してしまうため、`truth_table` は該当時に
+`[CONFLICT]` を警告し、`simulate(..., strict=True)` は例外を送出します
+（`find_conflicts(gates, inputs)` で一覧取得も可能）。
 
 ### DSL
 

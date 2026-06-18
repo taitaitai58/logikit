@@ -132,14 +132,46 @@ def netlist_from_circ(name, outdir='.'):
     return gates, inputs, outputs
 
 
-def simulate(gates, in_vals, seed=None, max_pass=2000):
+def find_conflicts(gates, inputs):
+    """Return nets driven by more than one source — a bus conflict.
+
+    A net is *driven* by each gate whose output lands on it and by each input
+    ``Pin`` tied to it; gate inputs and output ``Pin``s are sinks.  Two or more
+    drivers on one net is a short between outputs (or an input wired onto a gate
+    output): physically a conflict, and the simulator's fixpoint would then
+    depend on the order gates happen to be listed rather than being well-defined.
+
+    ``inputs`` is the ``{label: net}`` map from :func:`netlist_from_circ` (pass
+    ``{}`` if you only have a gate list).  Returns ``[(net, [driver, ...]), ...]``
+    — one entry per offending net, each with human-readable driver labels;
+    an empty list means the netlist is single-driver everywhere.
+    """
+    drivers = {}                                  # net -> list of driver labels
+    for kind, _ins, out in gates:
+        drivers.setdefault(out, []).append(f"{kind} output")
+    for label, net in inputs.items():
+        drivers.setdefault(net, []).append(f"input pin {label!r}")
+    return [(net, who) for net, who in drivers.items() if len(who) > 1]
+
+
+def simulate(gates, in_vals, seed=None, max_pass=2000, strict=False):
     """Relax ``gates`` to a fixpoint.
 
     ``in_vals`` forces source nets (the inputs); ``seed`` sets the initial value
     of latch nets so a bistable circuit lands in a chosen state.  Returns
     ``(stable, {net: value})``; ``stable=False`` means no fixpoint was reached
     within ``max_pass`` sweeps (an oscillator).
+
+    With ``strict=True``, raise :class:`ValueError` if any net is driven by more
+    than one gate output (a bus conflict — see :func:`find_conflicts`), since the
+    settled value would otherwise silently depend on gate order.
     """
+    if strict:
+        dup = [net for net, who in find_conflicts(gates, {}) if len(who) > 1]
+        if dup:
+            raise ValueError(
+                f"bus conflict: {len(dup)} net(s) driven by multiple gate "
+                f"outputs; the settled value would depend on gate order")
     val = {}
     allnets = set(in_vals)
     for kind, ins, out in gates:
@@ -189,6 +221,10 @@ def truth_table(name, outdir='.', inputs_order=None, outputs_order=None):
     can paste straight into a report, see :func:`truth_table_str`.
     """
     in_names, out_names, rows = _tabulate(name, outdir, inputs_order, outputs_order)
+    gates, inputs, _ = netlist_from_circ(name, outdir)
+    for _net, who in find_conflicts(gates, inputs):
+        print(f"  [CONFLICT] a net is driven by {len(who)} sources "
+              f"({', '.join(who)}); the simulation is order-dependent")
     print(f"  {name}:  inputs {in_names}  ->  outputs {out_names}")
     print("  " + " ".join(in_names) + "  |  " + " ".join(out_names))
     for in_d, outs, stable in rows:

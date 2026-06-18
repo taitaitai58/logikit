@@ -26,7 +26,7 @@ __all__ = [
     "Circ", "emit",
     "check",
     "netlist_from_circ", "simulate", "truth_table", "truth_table_str",
-    "format_table",
+    "format_table", "find_conflicts",
     "Scene", "render_scene",
 ]
 
@@ -38,7 +38,7 @@ _LAZY = {
     "Circ": "circ", "emit": "circ",
     "check": "check",
     "netlist_from_circ": "sim", "simulate": "sim", "truth_table": "sim",
-    "truth_table_str": "sim", "format_table": "sim",
+    "truth_table_str": "sim", "format_table": "sim", "find_conflicts": "sim",
     "Scene": "wiring", "render_scene": "wiring",
 }
 
