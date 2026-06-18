@@ -19,6 +19,9 @@ classifiers = [
 ]
 dependencies = []  # pure standard library
 
+[project.scripts]
+logikit = "logikit.cli:main"
+
 [project.urls]
 Homepage = "https://github.com/taitaitai58/logikit"
 Repository = "https://github.com/taitaitai58/logikit"
